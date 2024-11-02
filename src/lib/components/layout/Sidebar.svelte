@@ -405,7 +405,7 @@
 	id="sidebar"
 	class="h-screen max-h-[100dvh] min-h-screen select-none {$showSidebar
 		? 'md:relative w-[260px] max-w-[260px]'
-		: '-translate-x-[260px] w-[0px]'} bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-200 text-sm transition fixed z-50 top-0 left-0 overflow-x-hidden
+		: '-translate-x-[260px] w-[0px]'} bg-gray-50 text-[#ff0032] dark:bg-gray-950 dark:text-[#ff0032] text-sm transition fixed z-50 top-0 left-0 overflow-x-hidden font-medium
         "
 	data-state={$showSidebar}
 >
@@ -414,7 +414,7 @@
 			? ''
 			: 'invisible'}"
 	>
-		<div class="px-2.5 flex justify-between space-x-1 text-gray-600 dark:text-gray-400">
+		<div class="px-2.5 flex justify-between space-x-1 text-[#ff0032] dark:text-[#ff0032]">
 			<a
 				id="sidebar-new-chat-button"
 				class="flex flex-1 justify-between rounded-lg px-2 h-full hover:bg-gray-100 dark:hover:bg-gray-900 transition"
@@ -440,7 +440,7 @@
 						alt="logo"
 					/>
 				</div>
-				<div class=" self-center font-medium text-sm text-gray-850 dark:text-white font-primary">
+				<div class=" self-center font-medium text-sm text-[#ff0032] dark:text-white font-primary">
 					{$i18n.t('New Chat')}
 				</div>
 				<div class="self-center ml-auto">
@@ -486,7 +486,7 @@
 		</div>
 
 		{#if $user?.role === 'admin'}
-			<div class="px-2.5 flex justify-center text-gray-800 dark:text-gray-200">
+			<div class="px-2.5 flex justify-center text-[#ff0032] dark:text-[#ff0032]">
 				<a
 					class="flex-grow flex space-x-3 rounded-lg px-2.5 py-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition"
 					href="/workspace"

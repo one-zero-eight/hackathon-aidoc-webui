@@ -256,7 +256,7 @@
 
 <FilesOverlay show={dragged} />
 
-<div class="w-full font-primary">
+<div class="w-full font-primary ">
 	<div class=" -mb-0.5 mx-auto inset-x-0 bg-transparent flex justify-center">
 		<div class="flex flex-col px-2.5 max-w-6xl w-full">
 			<div class="relative">
@@ -396,7 +396,7 @@
 						}}
 					>
 						<div
-							class="flex-1 flex flex-col relative w-full rounded-3xl px-1.5 bg-gray-50 dark:bg-gray-850 dark:text-gray-100"
+							class="flex-1 flex flex-col relative w-full rounded-3xl px-1.5 bg-gray-50 dark:bg-gray-850 dark:text-gray-100 border-[#ff0032] border-2"
 							dir={$settings?.chatDirection ?? 'LTR'}
 						>
 							{#if files.length > 0}
@@ -970,7 +970,7 @@
 											<button
 												id="send-message-button"
 												class="{prompt !== ''
-													? 'bg-black text-white hover:bg-gray-900 dark:bg-white dark:text-black dark:hover:bg-gray-100 '
+													? 'bg-[#ff0032] text-white hover:bg-gray-900 dark:bg-[#ff0032] dark:text-white dark:hover:bg-[#ff0032] '
 													: 'text-white bg-gray-200 dark:text-gray-900 dark:bg-gray-700 disabled'} transition rounded-full p-1.5 m-0.5 self-center"
 												type="submit"
 												disabled={prompt === ''}

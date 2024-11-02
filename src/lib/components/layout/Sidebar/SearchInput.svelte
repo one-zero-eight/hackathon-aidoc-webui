@@ -91,7 +91,7 @@
 		</div>
 
 		<input
-			class="w-full rounded-r-xl py-1.5 pl-2.5 pr-4 text-sm bg-transparent dark:text-gray-300 outline-none"
+			class="w-full rounded-r-xl py-1.5 pl-2.5 pr-4 text-sm bg-transparent dark:text-[#ff0032] outline-none placeholder-[#ff0032]"
 			placeholder={placeholder ? placeholder : $i18n.t('Search')}
 			bind:value
 			on:input={() => {
@@ -148,7 +148,7 @@
 		>
 			<div class="px-2 py-2 text-xs group">
 				{#if filteredTags.length > 0}
-					<div class="px-1 font-medium dark:text-gray-300 text-gray-700 mb-1">Tags</div>
+					<div class="px-1 font-medium dark:text-[#ff0032] text-[#ff0032] mb-1">Tags</div>
 
 					<div class="max-h-60 overflow-auto">
 						{#each filteredTags as tag, tagIdx}
@@ -170,19 +170,19 @@
 								}}
 							>
 								<div
-									class="dark:text-gray-300 text-gray-700 font-medium line-clamp-1 flex-shrink-0"
+									class="dark:text-[#ff0032] text-[#ff0032] font-medium line-clamp-1 flex-shrink-0"
 								>
 									{tag.name}
 								</div>
 
-								<div class=" text-gray-500 line-clamp-1">
+								<div class=" text-[#ff0032] line-clamp-1">
 									{tag.id}
 								</div>
 							</button>
 						{/each}
 					</div>
 				{:else if filteredOptions.length > 0}
-					<div class="px-1 font-medium dark:text-gray-300 text-gray-700 mb-1">Search options</div>
+					<div class="px-1 font-medium dark:text-[#ff0032] text-[#ff0032] mb-1">Search options</div>
 
 					<div class=" max-h-60 overflow-auto">
 						{#each filteredOptions as option, optionIdx}
@@ -203,9 +203,9 @@
 									dispatch('input');
 								}}
 							>
-								<div class="dark:text-gray-300 text-gray-700 font-medium">{option.name}</div>
+								<div class="dark:text-[#ff0032] text-[#ff0032] font-medium">{option.name}</div>
 
-								<div class=" text-gray-500 line-clamp-1">
+								<div class=" text-[#ff0032] line-clamp-1">
 									{option.description}
 								</div>
 							</button>
