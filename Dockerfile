@@ -29,7 +29,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-COPY . .
+COPY *.json *.ts *.js *.cjs *.md ./
+COPY ./scripts ./scripts
+COPY ./static ./static
+COPY ./src ./src
 ENV APP_BUILD_HASH=${BUILD_HASH}
 RUN npm run build
 
