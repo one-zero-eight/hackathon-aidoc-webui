@@ -1,13 +1,13 @@
 import requests
 import logging
 import ftfy
+import pymupdf4llm
 
 from langchain_community.document_loaders import (
     BSHTMLLoader,
     CSVLoader,
     Docx2txtLoader,
     OutlookMessageLoader,
-    PyPDFLoader,
     TextLoader,
     UnstructuredEPubLoader,
     UnstructuredExcelLoader,
@@ -15,9 +15,11 @@ from langchain_community.document_loaders import (
     UnstructuredPowerPointLoader,
     UnstructuredRSTLoader,
     UnstructuredXMLLoader,
-    YoutubeLoader,
 )
 from langchain_core.documents import Document
+from openai import OpenAI
+
+from open_webui.config import OPENAI_API_BASE_URL, OPENAI_API_KEY
 from open_webui.env import SRC_LOG_LEVELS
 
 log = logging.getLogger(__name__)
@@ -113,13 +115,46 @@ class TikaLoader:
             raise Exception(f"Error calling Tika: {r.reason}")
 
 
+class Pdf4LlmLoader:
+    """
+    title: Make charts out of your data v2
+    author: Iqbal Maulana
+    author_url: https://github.com/iqballx?tab=repositories
+    author_linkedin: https://www.linkedin.com/in/iqbaalm/
+    funding_url: https://github.com/open-webui
+    version: 2.0.0
+    """
+
+    def __init__(self, file_path, extract_images: bool = False, mime_type=None):
+        self.file_path = file_path
+        self.mime_type = mime_type
+        self.extract_images = extract_images
+        self.openai = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_API_BASE_URL)
+
+    def load(self) -> list[Document]:
+        # noinspection PyTypeChecker
+        _: list[dict] = pymupdf4llm.to_markdown(self.file_path, page_chunks=True, graphics_limit=1000,
+                                                write_images=self.extract_images, show_progress=False)
+
+        return [Document(
+            page_content=page["text"], metadata={
+                **page["metadata"],
+                "toc_items": page["toc_items"],
+                "tables": page["tables"],
+                "images": page["images"],
+                "graphics": page["graphics"],
+                "words": page["words"],
+            }
+        ) for page in _]
+
+
 class Loader:
     def __init__(self, engine: str = "", **kwargs):
         self.engine = engine
         self.kwargs = kwargs
 
     def load(
-        self, filename: str, file_content_type: str, file_path: str
+            self, filename: str, file_content_type: str, file_path: str
     ) -> list[Document]:
         loader = self._get_loader(filename, file_content_type, file_path)
         docs = loader.load()
@@ -136,7 +171,7 @@ class Loader:
 
         if self.engine == "tika" and self.kwargs.get("TIKA_SERVER_URL"):
             if file_ext in known_source_ext or (
-                file_content_type and file_content_type.find("text/") >= 0
+                    file_content_type and file_content_type.find("text/") >= 0
             ):
                 loader = TextLoader(file_path, autodetect_encoding=True)
             else:
@@ -147,7 +182,7 @@ class Loader:
                 )
         else:
             if file_ext == "pdf":
-                loader = PyPDFLoader(
+                loader = Pdf4LlmLoader(
                     file_path, extract_images=self.kwargs.get("PDF_EXTRACT_IMAGES")
                 )
             elif file_ext == "csv":
@@ -163,9 +198,9 @@ class Loader:
             elif file_content_type == "application/epub+zip":
                 loader = UnstructuredEPubLoader(file_path)
             elif (
-                file_content_type
-                == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                or file_ext == "docx"
+                    file_content_type
+                    == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    or file_ext == "docx"
             ):
                 loader = Docx2txtLoader(file_path)
             elif file_content_type in [
@@ -181,7 +216,7 @@ class Loader:
             elif file_ext == "msg":
                 loader = OutlookMessageLoader(file_path)
             elif file_ext in known_source_ext or (
-                file_content_type and file_content_type.find("text/") >= 0
+                    file_content_type and file_content_type.find("text/") >= 0
             ):
                 loader = TextLoader(file_path, autodetect_encoding=True)
             else:
