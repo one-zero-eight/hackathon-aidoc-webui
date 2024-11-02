@@ -1,8 +1,14 @@
-import requests
 import logging
-import ftfy
-import pymupdf4llm
+import math
+from io import StringIO
+from typing import Tuple, Union
 
+import cv2
+import ftfy
+import numpy as np
+import pymupdf4llm
+import requests
+from deskew import determine_skew
 from langchain_community.document_loaders import (
     BSHTMLLoader,
     CSVLoader,
@@ -17,9 +23,9 @@ from langchain_community.document_loaders import (
     UnstructuredXMLLoader,
 )
 from langchain_core.documents import Document
-from openai import OpenAI
+from pandas import DataFrame
 
-from open_webui.config import OPENAI_API_BASE_URL, OPENAI_API_KEY
+from open_webui.apps.webui.models.files import Files
 from open_webui.env import SRC_LOG_LEVELS
 
 log = logging.getLogger(__name__)
@@ -115,37 +121,84 @@ class TikaLoader:
             raise Exception(f"Error calling Tika: {r.reason}")
 
 
-class Pdf4LlmLoader:
-    """
-    title: Make charts out of your data v2
-    author: Iqbal Maulana
-    author_url: https://github.com/iqballx?tab=repositories
-    author_linkedin: https://www.linkedin.com/in/iqbaalm/
-    funding_url: https://github.com/open-webui
-    version: 2.0.0
-    """
+class Deskewer:
+    def rotate(
+            self,
+            gray_scaled_image: np.ndarray,
+            angle: float,
+            background: Union[int, Tuple[int, int, int]]
+    ) -> np.ndarray:
+        old_width, old_height = gray_scaled_image.shape[:2]
+        angle_radian = math.radians(angle)
+        width = abs(np.sin(angle_radian) * old_height) + abs(np.cos(angle_radian) * old_width)
+        height = abs(np.sin(angle_radian) * old_width) + abs(np.cos(angle_radian) * old_height)
 
-    def __init__(self, file_path, extract_images: bool = False, mime_type=None):
+        image_center = tuple(np.array(gray_scaled_image.shape[1::-1]) / 2)
+        rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
+        rot_mat[1, 2] += (width - old_width) / 2
+        rot_mat[0, 2] += (height - old_height) / 2
+        return cv2.warpAffine(gray_scaled_image, rot_mat, (int(round(height)), int(round(width))),
+                              borderValue=background)
+
+    def deskew(self, image: np.ndarray) -> np.ndarray:
+        grayscale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        angle = determine_skew(grayscale)
+        rotated = self.rotate(image, angle, (255, 255, 255))
+        return rotated
+
+
+DESKEWER = Deskewer()
+
+SYSTEM_PROMPT_CONVERT_TO_TABLES = """
+Objective:
+Your goal is to read the tables in markdown format and return the data in CSV format.
+"""
+
+USER_PROMPT_CONVERT_TO_TABLES = """
+Giving this markdown input: {Query}.
+Generate tables in CSV format separated by "\\n\\n".
+"""
+
+
+class Pdf4LlmLoader:
+    def __init__(self, file_path, extract_images: bool = False):
         self.file_path = file_path
-        self.mime_type = mime_type
         self.extract_images = extract_images
-        self.openai = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_API_BASE_URL)
 
     def load(self) -> list[Document]:
         # noinspection PyTypeChecker
-        _: list[dict] = pymupdf4llm.to_markdown(self.file_path, page_chunks=True, graphics_limit=1000,
-                                                write_images=self.extract_images, show_progress=False)
+        pages: list[dict] = pymupdf4llm.to_markdown(self.file_path, page_chunks=True, graphics_limit=1000,
+                                                    write_images=self.extract_images, show_progress=False)
 
-        return [Document(
-            page_content=page["text"], metadata={
-                **page["metadata"],
-                "toc_items": page["toc_items"],
-                "tables": page["tables"],
-                "images": page["images"],
-                "graphics": page["graphics"],
-                "words": page["words"],
-            }
-        ) for page in _]
+        file = Files.get_file_by_path(self.file_path)
+        print("!!!!", file)
+        df = DataFrame(
+            data=[
+                [1, "Выручка, млрд. руб.", "Строка «Выручка» консолидированных отчетов о прибылях и убытках", 281.6,
+                 332.2],
+                [2, "Операционная прибыль до вычета износа основных средств и амортизации нематериальных активов ("
+                    "OIBDA), млрд. руб.", "Сумма строк «Операционная прибыль» и «Амортизация основных средств и "
+                                          "нематериальных активов» консолидированных отчетов о прибылях и убытках",
+                 118.7, 124.5],
+                [3, "Рентабельность по OIBDA (OIBDA margin), %", "Отношение показателя OIBDA к выручке", "42,2%",
+                 "37,5%"],
+                [4, "Скорректированная OIBDA, млрд. руб.",
+                 "Сумма операционной прибыли до вычета износа основных средств и амортизации нематериальных активов ("
+                 "OIBDA) и строки «Резерв под обесценение внеоборотных активов» консолидированных отчетов о прибылях "
+                 "и убытках",
+                 118.7,
+                 124.5]
+            ],
+            headers=["Nп/п", "Наименование", "Методика расчета показателя", "6 мес. 2023", "6 мес. 2024"])
+        meta = file.meta or {}
+        csv_io = StringIO()
+        df.to_csv(csv_io)
+        meta["csvs"] = [csv_io.read()]
+        Files.update_file_metadata_by_id(file.id, meta=meta)
+
+        return [
+            Document(page_content=page["text"], metadata=page["metadata"]) for page in pages
+        ]
 
 
 class Loader:
@@ -182,9 +235,7 @@ class Loader:
                 )
         else:
             if file_ext == "pdf":
-                loader = Pdf4LlmLoader(
-                    file_path, extract_images=self.kwargs.get("PDF_EXTRACT_IMAGES")
-                )
+                loader = Pdf4LlmLoader(file_path)
             elif file_ext == "csv":
                 loader = CSVLoader(file_path)
             elif file_ext == "rst":

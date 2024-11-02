@@ -2,7 +2,7 @@ import logging
 import time
 from typing import Optional
 
-from open_webui.apps.webui.internal.db import Base, JSONField, get_db
+from open_webui.apps.webui.internal.db import Base, get_db
 from open_webui.env import SRC_LOG_LEVELS
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import BigInteger, Column, String, Text, JSON
@@ -141,6 +141,12 @@ class FilesTable:
     def get_files(self) -> list[FileModel]:
         with get_db() as db:
             return [FileModel.model_validate(file) for file in db.query(File).all()]
+
+    def get_file_by_path(self, file_path) -> Optional[FileModel]:
+        with get_db() as db:
+            files = db.query(File).filter_by(path=file_path)
+            if files:
+                return FileModel.model_validate(files[0])
 
     def get_files_by_ids(self, ids: list[str]) -> list[FileModel]:
         with get_db() as db:
