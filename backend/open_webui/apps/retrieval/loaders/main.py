@@ -1,12 +1,15 @@
 import json
 import logging
 import math
+import re
 from io import StringIO
 from typing import Tuple, Union
 
+import camelot
 import cv2
 import ftfy
 import numpy as np
+import pandas as pd
 import pymupdf4llm
 import requests
 from deskew import determine_skew
@@ -24,7 +27,6 @@ from langchain_community.document_loaders import (
     UnstructuredXMLLoader,
 )
 from langchain_core.documents import Document
-from pandas import DataFrame
 
 from open_webui.apps.webui.models.files import Files
 from open_webui.env import SRC_LOG_LEVELS
@@ -166,36 +168,94 @@ class Pdf4LlmLoader:
         self.file_path = file_path
         self.extract_images = extract_images
 
+    @staticmethod
+    def format_cell(x):
+        if isinstance(x, str):
+            return re.sub(r'\s{2,}', ' ', x.replace("\n", "")).strip()
+        else:
+            return x
+
+    @staticmethod
+    def merge_dfs(dfs):
+        merged = []
+        last = None
+        was_numerated = False
+
+        for i, df in enumerate(dfs):
+            # Convert first column to integer list, removing any trailing periods in strings
+            first_col_as_ints = (df.iloc[:, 0]
+                                 .astype(str)
+                                 .str
+                                 .replace(r'\.$', '', regex=True)
+                                 .astype(int, errors="ignore")
+                                 .tolist())
+
+            # Check if the current DataFrame's first column is sequentially numbered
+            is_numerated = first_col_as_ints == list(range(1, len(first_col_as_ints) + 1))
+
+            # For the first DataFrame, set the initial numbering status
+            if i == 0:
+                was_numerated = is_numerated
+                last = first_col_as_ints[-1] if is_numerated else None
+                merged.append(df)
+                continue
+
+            # Check if current DataFrame continues from the previous one
+            if was_numerated and first_col_as_ints == list(range(last + 1, last + len(first_col_as_ints) + 1)):
+                # Merge with the last DataFrame in `merged`
+                merged[-1] = pd.concat([merged[-1], df], ignore_index=True)
+                last = first_col_as_ints[-1]
+            else:
+                # Start a new group if not sequential
+                merged.append(df)
+                was_numerated = is_numerated
+                last = first_col_as_ints[-1] if is_numerated else None
+
+        return merged
+
     def load(self) -> list[Document]:
+        # is_empty_or_scan = False
+        # with pymupdf.open(self.file_path) as doc:
+        #     for page in doc:
+        #         if page.get_text():
+        #             is_empty_or_scan = True
+        #             break
+        #
+        # if is_empty_or_scan:
+        #     # TODO: parse scan using TableTransformer
+        #     return []
         # noinspection PyTypeChecker
         pages: list[dict] = pymupdf4llm.to_markdown(self.file_path, page_chunks=True, graphics_limit=1000,
                                                     write_images=self.extract_images, show_progress=False)
+        tables = camelot.read_pdf(self.file_path, pages="all", backend="poppler")
+
+        tables_dfs = []
+        for table in tables._tables:
+            df = table.df
+            first_row = df.iloc[0, :].tolist()
+
+            # Check if the first row matches [1, 2, 3, ..., N] format, even if they are strings
+            if first_row == list(map(str, range(1, len(first_row) + 1))) or first_row == list(
+                    range(1, len(first_row) + 1)):
+                df = df.drop(index=0)  # Drop the first row if it matches the format
+
+            df = df.replace("", float("NaN"))
+            df = df.dropna(how="all")
+            df = df.applymap(self.format_cell)
+            tables_dfs.append(df)
+
+        tables_dfs = self.merge_dfs(tables_dfs)
+
+        tables_csvs = []
+        for df in tables_dfs:
+            csv_io = StringIO()
+            df.to_csv(csv_io, index=False, header=False)
+            csv_io.seek(0)
+            tables_csvs.append(csv_io.read())
 
         file = Files.get_file_by_path(self.file_path)
-        print("!!!!", file)
-        df = DataFrame(
-            data=[
-                [1, "Выручка, млрд. руб.", "Строка «Выручка» консолидированных отчетов о прибылях и убытках", 281.6,
-                 332.2],
-                [2, "Операционная прибыль до вычета износа основных средств и амортизации нематериальных активов ("
-                    "OIBDA), млрд. руб.", "Сумма строк «Операционная прибыль» и «Амортизация основных средств и "
-                                          "нематериальных активов» консолидированных отчетов о прибылях и убытках",
-                 118.7, 124.5],
-                [3, "Рентабельность по OIBDA (OIBDA margin), %", "Отношение показателя OIBDA к выручке", "42,2%",
-                 "37,5%"],
-                [4, "Скорректированная OIBDA, млрд. руб.",
-                 "Сумма операционной прибыли до вычета износа основных средств и амортизации нематериальных активов ("
-                 "OIBDA) и строки «Резерв под обесценение внеоборотных активов» консолидированных отчетов о прибылях "
-                 "и убытках",
-                 118.7,
-                 124.5]
-            ],
-            columns=["Nп/п", "Наименование", "Методика расчета показателя", "6 мес. 2023", "6 мес. 2024"])
         meta = file.meta or {}
-        csv_io = StringIO()
-        df.to_csv(csv_io, index=False)
-        csv_io.seek(0)
-        meta["csvs"] = json.dumps([csv_io.read()], ensure_ascii=True)
+        meta["csvs"] = json.dumps(tables_csvs, ensure_ascii=False)
         Files.update_file_metadata_by_id(file.id, meta=meta)
 
         return [

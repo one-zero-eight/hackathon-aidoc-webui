@@ -50,9 +50,11 @@ einops==0.8.0
 
 
 ftfy==6.2.3
-pypdf==4.3.1
+pypdf==3.17.4
 pymupdf4llm
 deskew
+pypdf-table-extraction[base] @ git+https://github.com/py-pdf/pypdf_table_extraction
+pypdfium2
 pdfminer.six
 xhtml2pdf==0.2.16
 pymdown-extensions==10.11.2
