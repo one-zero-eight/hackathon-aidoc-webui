@@ -1,18 +1,14 @@
 import json
 import logging
-import math
 import re
 from io import StringIO
-from typing import Tuple, Union
 
 import camelot
-import cv2
 import ftfy
-import numpy as np
 import pandas as pd
+import pymupdf
 import pymupdf4llm
 import requests
-from deskew import determine_skew
 from langchain_community.document_loaders import (
     BSHTMLLoader,
     CSVLoader,
@@ -27,6 +23,7 @@ from langchain_community.document_loaders import (
     UnstructuredXMLLoader,
 )
 from langchain_core.documents import Document
+from tables_extraction.main import extract_tables
 
 from open_webui.apps.webui.models.files import Files
 from open_webui.env import SRC_LOG_LEVELS
@@ -124,34 +121,6 @@ class TikaLoader:
             raise Exception(f"Error calling Tika: {r.reason}")
 
 
-class Deskewer:
-    def rotate(
-            self,
-            gray_scaled_image: np.ndarray,
-            angle: float,
-            background: Union[int, Tuple[int, int, int]]
-    ) -> np.ndarray:
-        old_width, old_height = gray_scaled_image.shape[:2]
-        angle_radian = math.radians(angle)
-        width = abs(np.sin(angle_radian) * old_height) + abs(np.cos(angle_radian) * old_width)
-        height = abs(np.sin(angle_radian) * old_width) + abs(np.cos(angle_radian) * old_height)
-
-        image_center = tuple(np.array(gray_scaled_image.shape[1::-1]) / 2)
-        rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
-        rot_mat[1, 2] += (width - old_width) / 2
-        rot_mat[0, 2] += (height - old_height) / 2
-        return cv2.warpAffine(gray_scaled_image, rot_mat, (int(round(height)), int(round(width))),
-                              borderValue=background)
-
-    def deskew(self, image: np.ndarray) -> np.ndarray:
-        grayscale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        angle = determine_skew(grayscale)
-        rotated = self.rotate(image, angle, (255, 255, 255))
-        return rotated
-
-
-DESKEWER = Deskewer()
-
 SYSTEM_PROMPT_CONVERT_TO_TABLES = """
 Objective:
 Your goal is to read the tables in markdown format and return the data in CSV format.
@@ -214,16 +183,19 @@ class Pdf4LlmLoader:
         return merged
 
     def load(self) -> list[Document]:
-        # is_empty_or_scan = False
-        # with pymupdf.open(self.file_path) as doc:
-        #     for page in doc:
-        #         if page.get_text():
-        #             is_empty_or_scan = True
-        #             break
-        #
-        # if is_empty_or_scan:
-        #     # TODO: parse scan using TableTransformer
-        #     return []
+        is_empty_or_scan = True
+        with pymupdf.open(self.file_path) as doc:
+            for page in doc:
+                if page.get_text():
+                    is_empty_or_scan = False
+                    break
+
+        if is_empty_or_scan:
+            results = extract_tables(self.file_path)
+            print("!!! TABLES:", results)
+
+            return []
+
         # noinspection PyTypeChecker
         pages: list[dict] = pymupdf4llm.to_markdown(self.file_path, page_chunks=True, graphics_limit=1000,
                                                     write_images=self.extract_images, show_progress=False)
@@ -241,7 +213,7 @@ class Pdf4LlmLoader:
 
             df = df.replace("", float("NaN"))
             df = df.dropna(how="all")
-            df = df.applymap(self.format_cell)
+            df = df.map(self.format_cell)
             tables_dfs.append(df)
 
         tables_dfs = self.merge_dfs(tables_dfs)
@@ -259,7 +231,8 @@ class Pdf4LlmLoader:
         Files.update_file_metadata_by_id(file.id, meta=meta)
 
         return [
-            Document(page_content=page["text"], metadata=page["metadata"]) for page in pages
+            Document(page_content=page["text"], metadata=page["metadata"] or {}) for page in pages
+            if page["text"]
         ]
 
 

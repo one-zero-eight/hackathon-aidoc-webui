@@ -139,6 +139,8 @@ RUN if [ "$USE_CUDA" = "true" ]; then \
     pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --no-cache-dir; \
     fi
 
+RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils
+
 # install python dependencies
 COPY --chown=$UID:$GID ./backend/requirements.txt ./requirements.txt
 
