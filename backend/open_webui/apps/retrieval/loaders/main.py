@@ -179,31 +179,18 @@ class Pdf4LlmLoader:
                 merged.append(df)
                 was_numerated = is_numerated
                 last = first_col_as_ints[-1] if is_numerated else None
+        output = []
+
+        for df in merged:
+            df = df.replace("", float("NaN"))
+            df = df.dropna(how="all", axis=1)
+            output.append(df)
 
         return merged
 
-    def load(self) -> list[Document]:
-        is_empty_or_scan = True
-        with pymupdf.open(self.file_path) as doc:
-            for page in doc:
-                if page.get_text():
-                    is_empty_or_scan = False
-                    break
-
-        if is_empty_or_scan:
-            results = extract_tables(self.file_path)
-            print("!!! TABLES:", results)
-
-            return []
-
-        # noinspection PyTypeChecker
-        pages: list[dict] = pymupdf4llm.to_markdown(self.file_path, page_chunks=True, graphics_limit=1000,
-                                                    write_images=self.extract_images, show_progress=False)
-        tables = camelot.read_pdf(self.file_path, pages="all", backend="poppler")
-
-        tables_dfs = []
-        for table in tables._tables:
-            df = table.df
+    def dfs_to_csvs_pipeline(self, dfs):
+        _dfs = []
+        for df in dfs:
             first_row = df.iloc[0, :].tolist()
 
             # Check if the first row matches [1, 2, 3, ..., N] format, even if they are strings
@@ -214,26 +201,46 @@ class Pdf4LlmLoader:
             df = df.replace("", float("NaN"))
             df = df.dropna(how="all")
             df = df.map(self.format_cell)
-            tables_dfs.append(df)
+            _dfs.append(df)
 
-        tables_dfs = self.merge_dfs(tables_dfs)
+        _dfs = self.merge_dfs(_dfs)
 
         tables_csvs = []
-        for df in tables_dfs:
+        for df in _dfs:
             csv_io = StringIO()
             df.to_csv(csv_io, index=False, header=False)
             csv_io.seek(0)
             tables_csvs.append(csv_io.read())
+        return tables_csvs
 
+    def load(self) -> list[Document]:
+        is_empty_or_scan = True
+        with pymupdf.open(self.file_path) as doc:
+            for page in doc:
+                if page.get_text():
+                    is_empty_or_scan = False
+                    break
+
+        if is_empty_or_scan:
+            tables_dfs, texts = extract_tables(self.file_path)
+            tables_csvs = self.dfs_to_csvs_pipeline(filter(lambda x: x is not None, tables_dfs))
+            docs = [Document(page_content=text) for text in texts if text]
+        else:
+            # noinspection PyTypeChecker
+            pages: list[dict] = pymupdf4llm.to_markdown(self.file_path, page_chunks=True, graphics_limit=1000,
+                                                        write_images=self.extract_images, show_progress=False)
+            tables = camelot.read_pdf(self.file_path, pages="all", backend="poppler")
+            tables_csvs = self.dfs_to_csvs_pipeline(tables._tables)
+            docs = [
+                Document(page_content=page["text"], metadata=page["metadata"] or {}) for page in pages
+                if page["text"]
+            ]
         file = Files.get_file_by_path(self.file_path)
         meta = file.meta or {}
         meta["csvs"] = json.dumps(tables_csvs, ensure_ascii=False)
         Files.update_file_metadata_by_id(file.id, meta=meta)
 
-        return [
-            Document(page_content=page["text"], metadata=page["metadata"] or {}) for page in pages
-            if page["text"]
-        ]
+        return docs
 
 
 class Loader:
