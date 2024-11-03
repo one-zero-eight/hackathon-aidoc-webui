@@ -1,3 +1,4 @@
+import json
 import logging
 import math
 from io import StringIO
@@ -189,11 +190,12 @@ class Pdf4LlmLoader:
                  118.7,
                  124.5]
             ],
-            headers=["Nп/п", "Наименование", "Методика расчета показателя", "6 мес. 2023", "6 мес. 2024"])
+            columns=["Nп/п", "Наименование", "Методика расчета показателя", "6 мес. 2023", "6 мес. 2024"])
         meta = file.meta or {}
         csv_io = StringIO()
-        df.to_csv(csv_io)
-        meta["csvs"] = [csv_io.read()]
+        df.to_csv(csv_io, index=False)
+        csv_io.seek(0)
+        meta["csvs"] = json.dumps([csv_io.read()], ensure_ascii=True)
         Files.update_file_metadata_by_id(file.id, meta=meta)
 
         return [
