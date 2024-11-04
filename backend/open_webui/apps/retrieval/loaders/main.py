@@ -230,7 +230,7 @@ class Pdf4LlmLoader:
             pages: list[dict] = pymupdf4llm.to_markdown(self.file_path, page_chunks=True, graphics_limit=1000,
                                                         write_images=self.extract_images, show_progress=False)
             tables = camelot.read_pdf(self.file_path, pages="all", backend="poppler")
-            tables_csvs = self.dfs_to_csvs_pipeline(tables._tables)
+            tables_csvs = self.dfs_to_csvs_pipeline([t.df for t in tables._tables])
             docs = [
                 Document(page_content=page["text"], metadata=page["metadata"] or {}) for page in pages
                 if page["text"]
